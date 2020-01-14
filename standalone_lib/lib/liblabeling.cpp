@@ -9,6 +9,7 @@
 #include "longest_paths.hpp"
 #include "segments_to_graph.hpp"
 
+#include <CGAL/Exact_circular_kernel.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Polygon_2.h>
 #include <CGAL/Polygon_with_holes_2.h>
@@ -35,6 +36,8 @@ namespace debug {
 
 namespace {
     // CGAL
+    using CK = CGAL::Exact_circular_kernel;
+
     using K = CGAL::Exact_predicates_inexact_constructions_kernel;
     using KPoint = K::Point_2;
     using KSegment = K::Segment_2;
@@ -301,14 +304,14 @@ namespace {
 
     std::optional<KPoint> computeOptPlacementBarrault( const circle_apx_nsp::Circle& c,
                                                        const liblabel::Aspect aspect,
-                                                       std::vector<K::Segment_2>& segments,
+                                                       std::vector<CK::LineArc2>& segments,
                                                        const KPolyWithHoles& ph) {
-        K::Circle_2 circle = {{c.x, c.y}, c.r*c.r};
+        CK::Circle_2 circle = {{c.x, c.y}, c.r*c.r};
         auto cups = compute_all_cups(segments, circle, aspect);
 
         auto high_points_list = high_points(cups);
 
-        std::vector<K::Point_2> valid_high_points;
+        std::vector<CK::Point_2> valid_high_points;
         std::copy_if(high_points_list.begin(), high_points_list.end(),
                     std::back_inserter(valid_high_points), [&](Point_2 p) {
                         return ph.outer_boundary().has_on_bounded_side(
@@ -328,7 +331,7 @@ namespace {
             const liblabel::Aspect aspect,
             const KPolyWithHoles& ph,
             const liblabel::Config& config) {
-        std::vector<K::Segment_2> cgal_segs;
+        std::vector<CK::LineArc2> lineArcs;
         std::copy(ph.outer_boundary().edges_begin(),
             ph.outer_boundary().edges_end(),
             std::back_inserter(cgal_segs));
