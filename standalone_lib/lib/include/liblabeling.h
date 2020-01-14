@@ -61,10 +61,16 @@ namespace liblabel {
         double normal, extend;
     };
 
+    std::optional<liblabel::AreaLabel> computeLabelBarrault( liblabel::Aspect,
+                                                     liblabel::Polygon&,
+                                                     bool progress = false,
+                                                     liblabel::Config = liblabel::Config() );
+
     std::optional<liblabel::AreaLabel> computeLabel( liblabel::Aspect,
                                                      liblabel::Polygon&,
                                                      bool progress = false,
                                                      liblabel::Config = liblabel::Config() );
+
 }
 
 #endif /* LIBLABELING_H */
