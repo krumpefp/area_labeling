@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <iostream>
 #include <math.h>
+#include <string>
 
 #include "liblabeling.h"
 
@@ -9,7 +10,6 @@
 #include "longest_paths.hpp"
 #include "segments_to_graph.hpp"
 
-#include <CGAL/Exact_circular_kernel.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Polygon_2.h>
 #include <CGAL/Polygon_with_holes_2.h>
@@ -18,10 +18,18 @@ const size_t TARGET_POLY_SIZE = 100;
 
 namespace debug {
     using namespace std;
+    void printPath(std::vector<liblabel::Point>& path) {
+        for(auto p : path) {
+            cout << "(" << p.x << "," << p.y << "), ";
+        }
+        cout << endl;
+    }
+
     void printPolyline(liblabel::Polyline& pl) {
         for(auto p : pl.points) {
             cout << "(" << p.x << "," << p.y << "), ";
         }
+        cout << endl;
     }
     void printPolygon(liblabel::Polygon& poly) {
         cout << "Outer boundary:" << endl;
@@ -36,8 +44,6 @@ namespace debug {
 
 namespace {
     // CGAL
-    using CK = CGAL::Exact_circular_kernel;
-
     using K = CGAL::Exact_predicates_inexact_constructions_kernel;
     using KPoint = K::Point_2;
     using KSegment = K::Segment_2;
@@ -58,13 +64,9 @@ namespace {
 
     std::vector<Path> computeLongestPaths(const std::vector<AugmentedSkeletonEdge>&, const liblabel::Aspect, const liblabel::Config&);
 
-    std::optional<liblabel::AreaLabel> evaluatePaths(const std::vector<Path>&, const liblabel::Aspect, const KPolyWithHoles&, const liblabel::Config&);
+    std::vector<Path> findLongestPathsBarrault(const std::vector<AugmentedSkeletonEdge>&, size_t);
 
-    std::optional<liblabel::AreaLabel> evaluatePathsBarrault(
-            const std::vector<Path>&,
-            const liblabel::Aspect,
-            const KPolyWithHoles&,
-            const liblabel::Config&);
+    std::optional<liblabel::AreaLabel> evaluatePaths(const std::vector<Path>&, const liblabel::Aspect, const KPolyWithHoles&, const liblabel::Config&);
 }
 
 std::optional<liblabel::AreaLabel> liblabel::computeLabelBarrault(
@@ -83,18 +85,24 @@ std::optional<liblabel::AreaLabel> liblabel::computeLabelBarrault(
     auto skeletonOp = constructSkeleton(ph);
     if(progress) std::cout << "... finished" << std:: endl;
     if(!skeletonOp.has_value()) {
+        std::cout << "ERROR: Could not construct polygon skeleton!" << std::endl;
         return {};
     }
     if(progress) std::cout << "The computed skeleton contains " << skeletonOp.value().size() << " many edges" << std::endl;
 
     // Find candidate paths
-    if(progress) std::cout << "Searching for 10 candidate paths ..." << std::endl;
-    auto paths = computeLongestPaths(skeletonOp.value(), aspect, configuration);
+    if(progress) std::cout << "Searching for 50 candidate paths ..." << std::endl;
+    auto paths = findLongestPathsBarrault(skeletonOp.value(), 50);
+    //auto paths = computeLongestPaths(skeletonOp.value(), aspect, configuration);
     if(progress) std::cout << "... finished. Found " << paths.size() << " candidate paths" << std::endl;
+    if(paths.size() == 0) {
+        std::cout << "ERROR: No candidate paths have been found!" << std::endl;
+        return {};
+    }
 
     // Evaluate paths
     if(progress) std::cout << "Evaluating paths ..." << std::endl;
-    auto res = evaluatePathsBarrault(paths, aspect, ph, configuration);
+    auto res = evaluatePaths(paths, aspect, ph, configuration);
     if(!res.has_value()) {
         if(progress) std::cout << "... finished without an result!" << std::endl;
     } else {
@@ -140,7 +148,6 @@ std::optional<liblabel::AreaLabel> liblabel::computeLabel(
 
     return res;
 }
-
 
 namespace {
     double segLength(const KSegment& seg) {
@@ -248,6 +255,30 @@ namespace {
         return res;
     }
 
+    std::vector<Path> findLongestPathsBarrault( const std::vector<AugmentedSkeletonEdge>& augSkelEdges, size_t k = 50) {
+        std::vector<longest_paths::Segment> segs;
+        std::transform(augSkelEdges.begin(), augSkelEdges.end(),
+            std::back_inserter(segs),
+            [](AugmentedSkeletonEdge e) -> longest_paths::Segment {
+                return {{e.src.x, e.src.y}, {e.trgt.x, e.trgt.y}, e.dist, e.clear};}
+            );
+        auto graph = from_edges(segs);
+
+        auto paths = find_longest_paths(graph, k);
+        
+        std::vector<Path> res;
+        std::transform(paths.begin(), paths.end(),
+            std::back_inserter(res),
+            [&graph](auto path) -> Path {
+                Path res;
+                std::transform(path.begin(), path.end(),
+                    std::back_inserter(res),
+                    [&graph](auto p) -> liblabel::Point {return {graph[p].x, graph[p].y};});
+                return res;
+            });
+        return res;
+    }
+
     std::vector<Path> computeLongestPaths( const std::vector<AugmentedSkeletonEdge>& augSkelEdges,
                                            const liblabel::Aspect aspect,
                                            const liblabel::Config& config) {
@@ -302,72 +333,6 @@ namespace {
         return height;
     }
 
-    std::optional<KPoint> computeOptPlacementBarrault( const circle_apx_nsp::Circle& c,
-                                                       const liblabel::Aspect aspect,
-                                                       std::vector<CK::LineArc2>& segments,
-                                                       const KPolyWithHoles& ph) {
-        CK::Circle_2 circle = {{c.x, c.y}, c.r*c.r};
-        auto cups = compute_all_cups(segments, circle, aspect);
-
-        auto high_points_list = high_points(cups);
-
-        std::vector<CK::Point_2> valid_high_points;
-        std::copy_if(high_points_list.begin(), high_points_list.end(),
-                    std::back_inserter(valid_high_points), [&](Point_2 p) {
-                        return ph.outer_boundary().has_on_bounded_side(
-                            polar_point(circle, p.x()));
-                    });
-
-        if (valid_high_points.empty()) {
-            return {};
-        }
-
-        return *std::max_element(valid_high_points.begin(), valid_high_points.end(),
-                                [](Point_2 p, Point_2 q) { return p.y() < q.y(); });
-    }
-
-    std::optional<liblabel::AreaLabel> evaluatePathsBarrault(
-            const std::vector<Path>& paths,
-            const liblabel::Aspect aspect,
-            const KPolyWithHoles& ph,
-            const liblabel::Config& config) {
-        std::vector<CK::LineArc2> lineArcs;
-        std::copy(ph.outer_boundary().edges_begin(),
-            ph.outer_boundary().edges_end(),
-            std::back_inserter(cgal_segs));
-        for(auto hit = ph.holes_begin(), end = ph.holes_end(); hit != end; ++hit) {
-            std::copy(hit->edges_begin(), hit->edges_end(),
-                std::back_inserter(cgal_segs));
-        }
-
-        std::vector<liblabel::AreaLabel> result;
-        for(auto path : paths) {
-            std::vector<circle_apx_nsp::Point> points;
-            std::transform(path.begin(), path.end(),
-                std::back_inserter(points),
-                [](liblabel::Point p) -> circle_apx_nsp::Point { return {p.x, p.y};});
-
-            auto circle = apx_circle(points);
-
-            auto placement = computeOptPlacementBarrault(circle, aspect, cgal_segs, ph);
-            if(placement.has_value()) {
-                auto placement_val = placement.value();
-                if(placement_val.y() > config.maxAngle ) {
-                    // if the placement > 90°, return none
-                    continue;
-                }
-                result.emplace_back(constructLabel(circle, placement.value(), aspect));
-            }
-        }
-
-        if(result.size() == 0) {
-            return {};
-        }
-
-        return *std::max_element(result.begin(), result.end(),
-            [](auto l1, auto l2) { return lblValue(l1) < lblValue(l2); });
-    }
-
     std::optional<KPoint> computeOptPlacement(const circle_apx_nsp::Circle& c, const liblabel::Aspect aspect, std::vector<K::Segment_2>& segments, const KPolyWithHoles& ph) {
         K::Circle_2 circle = {{c.x, c.y}, c.r*c.r};
         auto cups = compute_all_cups(segments, circle, aspect);
@@ -382,6 +347,7 @@ namespace {
                     });
 
         if (valid_high_points.empty()) {
+            std::cerr << "Could not find any valid high points" << std::endl;
             return {};
         }
 
@@ -398,6 +364,7 @@ namespace {
         std::copy(ph.outer_boundary().edges_begin(),
             ph.outer_boundary().edges_end(),
             std::back_inserter(cgal_segs));
+        
         for(auto hit = ph.holes_begin(), end = ph.holes_end(); hit != end; ++hit) {
             std::copy(hit->edges_begin(), hit->edges_end(),
                 std::back_inserter(cgal_segs));
@@ -417,7 +384,8 @@ namespace {
                 auto placement_val = placement.value();
                 if(placement_val.y() > config.maxAngle ) {
                     // if the placement > 90°, return none
-                    continue;
+                    //std::cout << "Should have returned none for angle > " << config.maxAngle << std::endl;
+                    // continue;
                 }
                 result.emplace_back(constructLabel(circle, placement.value(), aspect));
             }

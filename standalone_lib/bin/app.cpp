@@ -1,8 +1,10 @@
 #include <algorithm>
 #include <cassert>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <optional>
 #include <sstream>
 
 #include "liblabeling.h"
@@ -44,8 +46,10 @@ Input streamInput() {
 
     std::vector<double> coords;
     double tmp;
+
     std::string szTmp;
     std::getline(cin, szTmp);
+
     std::istringstream szStream(szTmp);
     std::copy(std::istream_iterator<double>(szStream),
         std::istream_iterator<double>(),
@@ -59,8 +63,8 @@ Input streamInput() {
         std::copy(std::istream_iterator<double>(szStream),
             std::istream_iterator<double>(),
             std::back_inserter(coords));
-        if(holes.size() == 0) {
-            break;
+        if(coords.size() == 0) {
+            continue;
         }
         holes.push_back(assemblePolyline(coords));
     }
@@ -68,6 +72,46 @@ Input streamInput() {
     return {aspect, {outer, holes}};
 }
 
+std::optional<Input> fileInput(std::string& filename) {
+    std::ifstream inFile(filename, std::ios::in);
+    if (!inFile.is_open()) {
+        std::cout << "Input file " << filename << " could not be opened." << std::endl;
+        return {};
+    }
+
+    liblabel::Aspect aspect;
+    std::string szTmp;
+    std::getline(inFile, szTmp);
+    std::istringstream szStream(szTmp);
+    szStream >> aspect;
+
+    std::vector<double> coords;
+    std::getline(inFile, szTmp);
+    szStream = std::istringstream(szTmp);
+    std::copy(std::istream_iterator<double>(szStream),
+        std::istream_iterator<double>(),
+        std::back_inserter(coords));
+    liblabel::Polyline outer = assemblePolyline(coords);
+
+    std::vector<liblabel::Polyline> holes;
+    for(std::string tmp; std::getline(inFile, tmp);) {
+        coords.clear();
+        szStream = std::istringstream(tmp);
+        std::copy(std::istream_iterator<double>(szStream),
+            std::istream_iterator<double>(),
+            std::back_inserter(coords));
+        if(coords.size() == 0) {
+            continue;
+        }
+        holes.push_back(assemblePolyline(coords));
+    }
+
+/*    std::cout << "Got a polygon of size " << std::to_string(outer.points.size())
+              << " many nodes and " << std::to_string(holes.size())
+              << " many holes" << std::endl;*/
+
+    return Input{aspect, {outer, holes}};
+}
 Input interactiveInput() {
     liblabel::Aspect aspect;
 
@@ -109,9 +153,10 @@ Input interactiveInput() {
 
 int main(int argc, char** argv) {
     if(argc < 2) {
-        cout << "Please use -i for interactive or -s for streamed input."
+        cout << "Please use -i for interactive, -f for file or -s for streamed input."
              << endl;
     } else if ("-i" == std::string(argv[1])) {
+        bool barrault = (argc == 3 && argv[2] == std::string("-b"));
         cout << "Get labeling parameters interactively!" << endl;
         Input input = interactiveInput();
 
@@ -120,9 +165,13 @@ int main(int argc, char** argv) {
         cout << "Input poly outer poly has " << input.poly.outer.points.size() << " points"
             << " and " << input.poly.holes.size() << " holes." << endl;
 
-        std::cout << "Starting labeling ..." << std::endl;
-        auto labelOp = liblabel::computeLabel(input.aspect, input.poly, true);
-
+        if (barrault) 
+            std::cout << "Starting labeling using Barrault-like procedure ..." << std::endl;
+        else 
+            std::cout << "Starting labeling using standard procedure ..." << std::endl;
+        
+        auto labelOp = barrault? liblabel::computeLabelBarrault(input.aspect, input.poly, true) : liblabel::computeLabel(input.aspect, input.poly, true);
+        
         cout << std::setprecision(std::numeric_limits<double>::digits10 + 1);
         if(labelOp.has_value()) {
             auto label = labelOp.value();
@@ -139,9 +188,37 @@ int main(int argc, char** argv) {
             cerr << "Label for the given input could not be constructed!" << endl;
         }
     } else if ("-s" == std::string(argv[1])) {
+        bool barrault = (argc == 3 && argv[2] == std::string("-b"));
         Input input = streamInput();
 
-        auto labelOp = liblabel::computeLabel(input.aspect, input.poly);
+        bool debug = false;
+        auto labelOp = barrault? liblabel::computeLabelBarrault(input.aspect, input.poly, debug) : liblabel::computeLabel(input.aspect, input.poly, debug);
+
+        cout << std::setprecision(std::numeric_limits<double>::digits10 + 1);
+        if(labelOp.has_value()) {
+            auto label = labelOp.value();
+            cout << "AreaLabel: "
+                << "(" << label.center.x << ", " << label.center.y
+                << ", " << label.rad_lower << ", " << label.rad_upper
+                << ", " << label.normal << ", " << label.extend << ")"
+                << endl;
+        } else {
+            cerr << "Label for the given input could not be constructed!" << endl;
+        }
+    } else if ("-f" == std::string(argv[1])) {
+        if (argc < 3) {
+            std::cout << "Please give an input file after specifying '-f' (-f input file name)" << std::endl;
+        }
+        std::string filename = std::string(argv[2]);
+        bool barrault = (argc >= 4 && argv[3] == std::string("-b"));
+        auto inputOpt = fileInput(filename);
+        if (!inputOpt) {
+            std::cout << "Could not read input file " << filename << ".\nExiting!" << std::endl;
+        }
+        Input input = inputOpt.value();
+
+        bool debug = false;
+        auto labelOp = barrault? liblabel::computeLabelBarrault(input.aspect, input.poly, debug) : liblabel::computeLabel(input.aspect, input.poly, debug);
 
         cout << std::setprecision(std::numeric_limits<double>::digits10 + 1);
         if(labelOp.has_value()) {
