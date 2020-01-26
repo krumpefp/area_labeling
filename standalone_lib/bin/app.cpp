@@ -211,6 +211,11 @@ int main(int argc, char** argv) {
         }
         std::string filename = std::string(argv[2]);
         bool barrault = (argc >= 4 && argv[3] == std::string("-b"));
+        std::size_t candidates = 30;
+        if (argc >= 5 && argv[3] == std::string("-c")) {
+            candidates = std::stoi(argv[4]);
+        }
+
         auto inputOpt = fileInput(filename);
         if (!inputOpt) {
             std::cout << "Could not read input file " << filename << ".\nExiting!" << std::endl;
@@ -218,7 +223,9 @@ int main(int argc, char** argv) {
         Input input = inputOpt.value();
 
         bool debug = false;
-        auto labelOp = barrault? liblabel::computeLabelBarrault(input.aspect, input.poly, debug) : liblabel::computeLabel(input.aspect, input.poly, debug);
+        liblabel::Config conf;
+        conf.numberOfPaths = candidates;
+        auto labelOp = barrault? liblabel::computeLabelBarrault(input.aspect, input.poly, debug) : liblabel::computeLabel(input.aspect, input.poly, debug, conf);
 
         cout << std::setprecision(std::numeric_limits<double>::digits10 + 1);
         if(labelOp.has_value()) {

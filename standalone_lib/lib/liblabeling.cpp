@@ -75,6 +75,7 @@ std::optional<liblabel::AreaLabel> liblabel::computeLabelBarrault(
         bool progress,
         liblabel::Config configuration
 ) {
+    configuration.maxAngle = 2*M_PI;
     if(progress) std::cout << "Constructing the polygon ..." << std::endl;
     KPolyWithHoles ph = constructPolygon(poly);
     if(progress) std::cout << "... finished.\nOuter polygon was supsampled to "
@@ -385,7 +386,7 @@ namespace {
                 if(placement_val.y() > config.maxAngle ) {
                     // if the placement > 90°, return none
                     //std::cout << "Should have returned none for angle > " << config.maxAngle << std::endl;
-                    // continue;
+                    continue;
                 }
                 result.emplace_back(constructLabel(circle, placement.value(), aspect));
             }

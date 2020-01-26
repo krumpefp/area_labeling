@@ -42,7 +42,7 @@ namespace liblabel {
 
     struct Config {
         // Step size during the longest path search
-        double stepSize = 2.5;
+        double stepSize = 1.4142;   //sqrt 2
 
         // Number of alternative longest paths to consider
         size_t numberOfPaths = 30;
